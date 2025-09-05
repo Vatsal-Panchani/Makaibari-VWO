@@ -1,0 +1,1034 @@
+// Universal Dynamic Sticky Bar - Mobile Only + 15% Scroll Trigger - 50:50 Layout - Compact Version
+(function() {
+    // **NEW: Mobile detection function**
+    function isMobileDevice() {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+               window.innerWidth <= 768;
+    }
+    
+    // **NEW: Scroll percentage calculation**
+    function getScrollPercentage() {
+        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        const documentHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+        return documentHeight > 0 ? (scrollTop / documentHeight) * 100 : 0;
+    }
+    
+    // **NEW: Check if conditions are met to show sticky bar**
+    function shouldShowStickyBar() {
+        return isMobileDevice() && getScrollPercentage() >= 15;
+    }
+    
+    // Detect page type
+    function getPageType() {
+        const hasSubscription = !!(
+            document.querySelector('.recurpay__subscribe_radio') || 
+            document.querySelector('.recurpay__onetime_radio') ||
+            document.querySelector('.recurpay__widget') ||
+            document.querySelector('.recurpay-pdp-widget[style*="display: block"]')
+        );
+        return hasSubscription ? 'subscription' : 'simple';
+    }
+    
+    // Get current selection based on page type
+    function getCurrentSelection() {
+        const pageType = getPageType();
+        if (pageType === 'subscription') {
+            return getSubscriptionSelection();
+        } else {
+            return getSimpleSelection();
+        }
+    }
+    
+    // Get subscription page selection
+    function getSubscriptionSelection() {
+        const subscriptionRadio = document.querySelector('.recurpay__subscribe_radio');
+        const onetimeRadio = document.querySelector('.recurpay__onetime_radio');
+        
+        // Check one-time purchase first
+        if (onetimeRadio && onetimeRadio.checked) {
+            const priceSelectors = [
+                '.recurpay__widget_container[data-type="onetime-purchase"] .recurpay__group_selling_price .money',
+                '.recurpay__group_selling_price .money',
+                '.product-price .money',
+                '.money'
+            ];
+            let price = null;
+            for (const selector of priceSelectors) {
+                const priceElement = document.querySelector(selector);
+                if (priceElement && priceElement.textContent.trim()) {
+                    price = priceElement.textContent.trim();
+                    break;
+                }
+            }
+            return {
+                type: 'one-time',
+                price: price,
+                oldPrice: document.querySelector('.compare-at-price .money')?.textContent || null
+            };
+        }
+        
+        // Check subscription
+        if (subscriptionRadio && subscriptionRadio.checked) {
+            const frequencySelect = document.querySelector('.recurpay__frequency_select');
+            if (!frequencySelect) return null;
+            const selectedOption = frequencySelect.options[frequencySelect.selectedIndex];
+            return {
+                type: 'subscription',
+                planId: selectedOption.getAttribute('data-plan'),
+                planName: selectedOption.getAttribute('data-plan-name'),
+                months: selectedOption.getAttribute('data-plan-shipment'),
+                discount: selectedOption.getAttribute('data-plan-discount'),
+                oldPrice: document.querySelector('.recurpay__group_compare_price .money')?.textContent || null,
+                discountedPrice: document.querySelector('.recurpay__group_discounted_price .money')?.textContent || null
+            };
+        }
+        return null;
+    }
+    
+    // Get simple page selection
+    function getSimpleSelection() {
+        let price = null;
+        let oldPrice = null;
+        
+        // Try to get price from main price display
+        const priceSelectors = [
+            '.price-item--sale',
+            '.price-item--regular',
+            '.price .price-item',
+            '.product-price .money',
+            '.price .money',
+            '.product__price .money',
+            '.price__current .money',
+            '.money',
+            '[data-price]'
+        ];
+        
+        for (const selector of priceSelectors) {
+            const priceElement = document.querySelector(selector);
+            if (priceElement && priceElement.textContent.trim()) {
+                price = priceElement.textContent.trim();
+                break;
+            }
+        }
+        
+        // Get old/compare price
+        const oldPriceSelectors = [
+            '.price-item--regular s',
+            '.price__sale s .price-item--regular',
+            '.compare-at-price .money',
+            '.was-price .money',
+            '.original-price .money'
+        ];
+        
+        for (const selector of oldPriceSelectors) {
+            const oldPriceElement = document.querySelector(selector);
+            if (oldPriceElement && oldPriceElement.textContent.trim() && oldPriceElement.textContent !== price) {
+                oldPrice = oldPriceElement.textContent.trim();
+                break;
+            }
+        }
+        
+        // Try variant JSON if no price found
+        if (!price) {
+            const selectedVariant = document.querySelector('input[name="QUANTITY DISCOUNT"]:checked');
+            if (selectedVariant) {
+                const variantData = getVariantPriceFromJSON(selectedVariant.value);
+                if (variantData) {
+                    price = variantData.price;
+                }
+            }
+        }
+        
+        return {
+            type: 'add-to-cart',
+            price: price,
+            oldPrice: oldPrice
+        };
+    }
+    
+    // Get variant price from JSON data
+    function getVariantPriceFromJSON(variantTitle) {
+        try {
+            const scriptTag = document.querySelector('script[type="application/json"]');
+            if (scriptTag) {
+                const variantData = JSON.parse(scriptTag.textContent);
+                const variant = variantData.find(v => v.title === variantTitle);
+                if (variant) {
+                    return {
+                        price: formatPrice(variant.price),
+                        comparePrice: variant.compare_at_price ? formatPrice(variant.compare_at_price) : null
+                    };
+                }
+            }
+        } catch (e) {
+            // console.log('Error parsing variant JSON:', e);
+        }
+        return null;
+    }
+    
+    // Format price from cents to currency
+    function formatPrice(priceInCents) {
+        return `Rs. ${(priceInCents / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    
+    // Get product name
+    function getProductName() {
+        const nameSelectors = [
+            '.product__title h1',
+            '.product__title h2.h1',
+            'h1.product-title',
+            'h1.product__title',
+            '.product-title',
+            '.product__title',
+            'h1',
+            '.product-name'
+        ];
+        for (const selector of nameSelectors) {
+            const element = document.querySelector(selector);
+            if (element && element.textContent.trim()) {
+                return element.textContent.trim();
+            }
+        }
+        return 'Product';
+    }
+    
+    // Check CartDrawer visibility
+    function isCartDrawerVisible() {
+        const cartDrawer = document.getElementById('CartDrawer');
+        if (!cartDrawer) return false;
+        
+        const isVisible = (
+            cartDrawer.style.display !== 'none' &&
+            cartDrawer.offsetWidth > 0 &&
+            cartDrawer.offsetHeight > 0 &&
+            !cartDrawer.hidden &&
+            (cartDrawer.classList.contains('active') || 
+             cartDrawer.classList.contains('open') || 
+             cartDrawer.classList.contains('animate') ||
+             window.getComputedStyle(cartDrawer).visibility !== 'hidden')
+        );
+        return isVisible;
+    }
+    
+    // **UPDATED: Hide PushOwl and manage WhatsApp margin**
+    function manageFloatingWidgetsMargin(stickyBarVisible) {
+        // Handle WhatsApp icon
+        const whatsappIcon = document.querySelector('.qr_wa_icon');
+        if (whatsappIcon) {
+            if (stickyBarVisible) {
+                whatsappIcon.style.marginBottom = '70px';
+            } else {
+                whatsappIcon.style.marginBottom = '';
+            }
+        }
+        
+        // **UPDATED: Hide PushOwl widget completely when sticky bar is visible**
+        const pushOwlSelectors = [
+            'body > div.pushowl-widget-node.pushowl-widget-node--mobile > div > button',
+            '.pushowl-widget-node.pushowl-widget-node--mobile button',
+            '.pushowl-widget-node--mobile button',
+            '[class*="pushowl"] button'
+        ];
+        
+        let pushOwlWidget = null;
+        for (const selector of pushOwlSelectors) {
+            pushOwlWidget = document.querySelector(selector);
+            if (pushOwlWidget) break;
+        }
+        
+        if (pushOwlWidget) {
+            if (stickyBarVisible) {
+                // **UPDATED: Hide the PushOwl widget**
+                pushOwlWidget.style.setProperty('display', 'none', 'important');
+                pushOwlWidget.style.setProperty('visibility', 'hidden', 'important');
+                pushOwlWidget.style.setProperty('opacity', '0', 'important');
+            } else {
+                // **UPDATED: Show the PushOwl widget**
+                pushOwlWidget.style.removeProperty('display');
+                pushOwlWidget.style.removeProperty('visibility');
+                pushOwlWidget.style.removeProperty('opacity');
+            }
+        }
+        
+        // **UPDATED: Also handle PushOwl container**
+        const pushOwlContainer = document.querySelector('div.pushowl-widget-node.pushowl-widget-node--mobile');
+        if (pushOwlContainer) {
+            if (stickyBarVisible) {
+                // **UPDATED: Hide the PushOwl container**
+                pushOwlContainer.style.setProperty('display', 'none', 'important');
+                pushOwlContainer.style.setProperty('visibility', 'hidden', 'important');
+                pushOwlContainer.style.setProperty('opacity', '0', 'important');
+            } else {
+                // **UPDATED: Show the PushOwl container**
+                pushOwlContainer.style.removeProperty('display');
+                pushOwlContainer.style.removeProperty('visibility');
+                pushOwlContainer.style.removeProperty('opacity');
+            }
+        }
+    }
+    
+    // Handle scroll events for 15% trigger
+    function handleScrollTrigger() {
+        const stickyBar = document.getElementById('universal-sticky-price-bar');
+        if (!stickyBar) return;
+        
+        const scrollPercent = getScrollPercentage();
+        const isCartVisible = isCartDrawerVisible();
+        
+        if (isMobileDevice() && scrollPercent >= 15 && !isCartVisible) {
+            stickyBar.style.transform = 'translateY(0)';
+            stickyBar.style.visibility = 'visible';
+            manageFloatingWidgetsMargin(true);
+        } else {
+            stickyBar.style.transform = 'translateY(100%)';
+            stickyBar.style.visibility = 'hidden';
+            manageFloatingWidgetsMargin(false);
+        }
+    }
+    
+    // **UPDATED: Inject CSS styles with PushOwl hiding rules**
+    function injectStyles() {
+        const styles = `
+            <style id="universal-sticky-bar-styles">
+                .universal-sticky-price-bar {
+                    position: fixed;
+                    bottom: 0;
+                    left: 0;
+                    right: 0;
+                    background: #d4ccb3;
+                    border-top: 2px solid #c2b896;
+                    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
+                    padding: 10px 20px 12px 20px;
+                    z-index: 9999;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+                    transform: translateY(100%);
+                    transition: all 0.3s ease-in-out;
+                    visibility: hidden;
+                    min-height: 60px;
+                    box-sizing: border-box;
+                }
+                
+                .universal-sticky-price-bar.show {
+                    transform: translateY(0);
+                    visibility: visible;
+                }
+                
+                /* **UPDATED: Hide PushOwl widget when sticky bar is visible** */
+                body.sticky-bar-visible .pushowl-widget-node.pushowl-widget-node--mobile {
+                    display: none !important;
+                    visibility: hidden !important;
+                    opacity: 0 !important;
+                }
+                
+                body.sticky-bar-visible .pushowl-widget-node.pushowl-widget-node--mobile button {
+                    display: none !important;
+                    visibility: hidden !important;
+                    opacity: 0 !important;
+                }
+                
+                /* **NEW: 50:50 Layout - Product Info (Name + Price) | Plan Info + Button */
+                .universal-sticky-bar-left {
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    width: 50%;
+                    flex: 0 0 50%;
+                    min-width: 0;
+                    gap: 4px;
+                }
+                
+                .universal-sticky-bar-product-name {
+                    font-weight: 600;
+                    font-size: 15px;
+                    color: #4a3f2a;
+                    width: 100%;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    line-height: 1.2;
+                }
+                
+                .universal-sticky-bar-pricing {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    flex-wrap: wrap;
+                }
+                
+                /* **UPDATED: Right side with compact vertical layout** */
+                .universal-sticky-bar-right {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    width: 50%;
+                    flex: 0 0 50%;
+                    min-width: 0;
+                    gap: 4px;
+                    padding-bottom: 2px;
+                }
+                
+                .universal-sticky-bar-old-price {
+                    font-size: 12px;
+                    color: #8b7355;
+                    text-decoration: line-through;
+                    text-decoration-color: #b8a082;
+                    text-decoration-thickness: 2px;
+                    white-space: nowrap;
+                }
+                
+                .universal-sticky-bar-current-price {
+                    font-size: 16px;
+                    font-weight: 700;
+                    color: #3d3420;
+                    white-space: nowrap;
+                }
+                
+                /* **UPDATED: GREEN DISCOUNT TAG - Better visibility** */
+                .universal-sticky-bar-discount {
+                    background: #28a745;
+                    color: #ffffff;
+                    padding: 2px 5px;
+                    border-radius: 3px;
+                    font-size: 9px;
+                    font-weight: 700;
+                    white-space: nowrap;
+                    text-transform: uppercase;
+                    letter-spacing: 0.3px;
+                    box-shadow: 0 2px 4px rgba(40, 167, 69, 0.3);
+                    animation: pulse-discount 2s infinite;
+                }
+                
+                @keyframes pulse-discount {
+                    0%, 100% { 
+                        transform: scale(1); 
+                        box-shadow: 0 2px 4px rgba(40, 167, 69, 0.3);
+                    }
+                    50% { 
+                        transform: scale(1.05); 
+                        box-shadow: 0 4px 8px rgba(40, 167, 69, 0.4);
+                    }
+                }
+                
+                /* **UPDATED: Clean subscription tagline without background** */
+                .universal-sticky-bar-plan-info {
+                    font-size: 11px;
+                    color: #6b5d42;
+                    white-space: nowrap;
+                    display: none;
+                    background: transparent;
+                    padding: 2px 0;
+                    border-radius: 0;
+                    font-weight: 600;
+                    text-align: center;
+                    order: 1;
+                    margin-bottom: 2px;
+                    align-self: center;
+                    border: none;
+                    box-shadow: none;
+                }
+                
+                /* **UPDATED: Compact button styles** */
+                .universal-sticky-bar-button {
+                    background: #464D3F !important;
+                    color: #FFFFFF !important;
+                    border: none !important;
+                    padding: 10px 20px;
+                    border-radius: 6px;
+                    font-size: 13px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                    min-width: 130px;
+                    margin-right: 10px;
+                    margin-bottom: 2px;
+                    flex: 0 0 auto;
+                    white-space: nowrap;
+                    text-transform: uppercase;
+                    letter-spacing: 0.4px;
+                    box-shadow: 0 3px 8px rgba(70, 77, 63, 0.3) !important;
+                    position: relative;
+                    overflow: hidden;
+                    order: 2;
+                    align-self: center;
+                }
+                
+                .universal-sticky-bar-button:hover {
+                    background: #3a4035 !important;
+                    transform: translateY(-1px);
+                    box-shadow: 0 4px 12px rgba(70, 77, 63, 0.4) !important;
+                    letter-spacing: 0.6px;
+                }
+                
+                .universal-sticky-bar-button:active {
+                    background: #2e332b !important;
+                    transform: translateY(0px);
+                    box-shadow: 0 2px 6px rgba(70, 77, 63, 0.3) !important;
+                }
+                
+                .universal-sticky-bar-button.subscription {
+                    background: #464D3F !important;
+                    min-width: 140px;
+                    margin-right: 10px;
+                    margin-bottom: 2px;
+                    font-size: 13px;
+                    box-shadow: 0 3px 8px rgba(70, 77, 63, 0.3) !important;
+                    padding: 10px 20px;
+                }
+                
+                .universal-sticky-bar-button.subscription:hover {
+                    background: #3a4035 !important;
+                    box-shadow: 0 4px 12px rgba(70, 77, 63, 0.4) !important;
+                    transform: translateY(-1px);
+                }
+                
+                .universal-sticky-bar-button.subscription:active {
+                    background: #2e332b !important;
+                    transform: translateY(0px);
+                }
+                
+                .universal-sticky-bar-button::before {
+                    content: '';
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 50%, rgba(0,0,0,0.1) 100%);
+                    border-radius: 6px;
+                    pointer-events: none;
+                }
+                
+                .universal-sticky-bar-button.updating {
+                    opacity: 0.7 !important;
+                    pointer-events: none;
+                    transform: none;
+                    background: #8a8f82 !important;
+                    cursor: not-allowed;
+                }
+                
+                .universal-sticky-bar-button.updating::after {
+                    content: '';
+                    position: absolute;
+                    top: 50%;
+                    left: 50%;
+                    width: 20px;
+                    height: 20px;
+                    margin: -10px 0 0 -10px;
+                    border: 2px solid transparent;
+                    border-top: 2px solid #ffffff;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                }
+                
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+                
+                /* **UPDATED: Mobile responsive with clean subscription tagline** */
+                @media (max-width: 768px) {
+                    .universal-sticky-price-bar {
+                        padding: 8px 15px 10px 15px;
+                        gap: 8px;
+                        min-height: 55px;
+                    }
+                    
+                    .universal-sticky-bar-product-name {
+                        font-size: 14px;
+                    }
+                    
+                    .universal-sticky-bar-current-price {
+                        font-size: 15px;
+                    }
+                    
+                    .universal-sticky-bar-button {
+                        min-width: 115px;
+                        padding: 9px 16px;
+                        font-size: 12px;
+                        margin-right: 8px;
+                        margin-bottom: 2px;
+                    }
+                    
+                    .universal-sticky-bar-plan-info {
+                        font-size: 10px;
+                        padding: 1px 0;
+                        margin-bottom: 2px;
+                    }
+                    
+                    .universal-sticky-bar-right {
+                        gap: 3px;
+                        padding-bottom: 1px;
+                    }
+                }
+                
+                @media (max-width: 480px) {
+                    .universal-sticky-price-bar {
+                        padding: 6px 12px 8px 12px;
+                        min-height: 50px;
+                    }
+                    
+                    .universal-sticky-bar-left {
+                        width: 55%;
+                        flex: 0 0 55%;
+                    }
+                    
+                    .universal-sticky-bar-right {
+                        width: 45%;
+                        flex: 0 0 45%;
+                        gap: 3px;
+                        padding-bottom: 1px;
+                    }
+                    
+                    .universal-sticky-bar-product-name {
+                        font-size: 13px;
+                    }
+                    
+                    .universal-sticky-bar-current-price {
+                        font-size: 14px;
+                    }
+                    
+                    .universal-sticky-bar-old-price {
+                        font-size: 11px;
+                    }
+                    
+                    .universal-sticky-bar-discount {
+                        font-size: 8px;
+                        padding: 2px 4px;
+                    }
+                    
+                    .universal-sticky-bar-button {
+                        width: calc(100% - 8px);
+                        padding: 10px 16px;
+                        font-size: 13px;
+                        margin-right: 8px;
+                        margin-bottom: 1px;
+                    }
+                    
+                    .universal-sticky-bar-plan-info {
+                        font-size: 9px;
+                        padding: 1px 0;
+                        margin-bottom: 2px;
+                    }
+                }
+                
+                /* High contrast focus states for accessibility */
+                .universal-sticky-bar-button:focus {
+                    outline: 3px solid #FFD700;
+                    outline-offset: 2px;
+                }
+                
+                /* Reduced motion for users who prefer it */
+                @media (prefers-reduced-motion: reduce) {
+                    .universal-sticky-bar-button,
+                    .universal-sticky-bar-discount {
+                        animation: none;
+                        transition: none;
+                    }
+                    .universal-sticky-bar-button:hover {
+                        transform: none;
+                    }
+                }
+                
+                /* Desktop override */
+                @media (min-width: 769px) {
+                    .universal-sticky-price-bar {
+                        display: none !important;
+                    }
+                }
+            </style>
+        `;
+        document.head.insertAdjacentHTML('beforeend', styles);
+    }
+    
+    // **UPDATED: Create sticky bar with compact layout**
+    function createStickyBar() {
+        if (!isMobileDevice()) {
+            return null;
+        }
+        
+        const stickyBar = document.createElement('div');
+        stickyBar.className = 'universal-sticky-price-bar';
+        stickyBar.id = 'universal-sticky-price-bar';
+        
+        stickyBar.innerHTML = `
+            <div class="universal-sticky-bar-left">
+                <div class="universal-sticky-bar-product-name">Product</div>
+                <div class="universal-sticky-bar-pricing">
+                    <span class="universal-sticky-bar-current-price">-</span>
+                    <span class="universal-sticky-bar-old-price" style="display: none;"></span>
+                    <span class="universal-sticky-bar-discount" style="display: none;"></span>
+                </div>
+            </div>
+            <div class="universal-sticky-bar-right">
+                <span class="universal-sticky-bar-plan-info" style="display: none;"></span>
+                <button class="universal-sticky-bar-button" id="universal-sticky-bar-btn">Add to Cart</button>
+            </div>
+        `;
+        
+        document.body.appendChild(stickyBar);
+        
+        // **NEW: Add body class for CSS targeting**
+        document.body.classList.add('sticky-bar-visible');
+        
+        return stickyBar;
+    }
+    
+    // **UPDATED: Update sticky bar content with enhanced layout**
+    function updateStickyBar(selection, productName) {
+        const stickyBar = document.getElementById('universal-sticky-price-bar');
+        if (!stickyBar) return;
+        
+        // Update product name
+        const productNameEl = stickyBar.querySelector('.universal-sticky-bar-product-name');
+        if (productNameEl) {
+            productNameEl.textContent = productName;
+        }
+        
+        const oldPriceEl = stickyBar.querySelector('.universal-sticky-bar-old-price');
+        const currentPriceEl = stickyBar.querySelector('.universal-sticky-bar-current-price');
+        const discountEl = stickyBar.querySelector('.universal-sticky-bar-discount');
+        const planInfoEl = stickyBar.querySelector('.universal-sticky-bar-plan-info');
+        const buttonEl = stickyBar.querySelector('.universal-sticky-bar-button');
+        const rightContainer = stickyBar.querySelector('.universal-sticky-bar-right');
+        
+        // **ALWAYS HIDE PLAN INFO FIRST**
+        if (planInfoEl) {
+            planInfoEl.style.display = 'none';
+            rightContainer.classList.remove('subscription-active');
+        }
+        
+        if (selection && selection.type === 'one-time') {
+            // ONE-TIME PURCHASE
+            currentPriceEl.textContent = selection.price || 'Price not available';
+            if (selection.oldPrice && selection.oldPrice !== selection.price) {
+                oldPriceEl.textContent = selection.oldPrice;
+                oldPriceEl.style.display = 'inline';
+                const current = parseFloat(selection.price.replace(/[^\d.]/g, ''));
+                const old = parseFloat(selection.oldPrice.replace(/[^\d.]/g, ''));
+                if (old > current && !isNaN(current) && !isNaN(old)) {
+                    const discountPercent = Math.round(((old - current) / old) * 100);
+                    discountEl.textContent = `${discountPercent}% OFF`;
+                    discountEl.style.display = 'inline-block';
+                } else {
+                    discountEl.style.display = 'none';
+                }
+            } else {
+                oldPriceEl.style.display = 'none';
+                discountEl.style.display = 'none';
+            }
+            buttonEl.textContent = 'Add to Cart';
+            buttonEl.className = 'universal-sticky-bar-button';
+            if (planInfoEl) planInfoEl.style.display = 'none';
+        } else if (selection && selection.type === 'subscription') {
+            // SUBSCRIPTION
+            currentPriceEl.textContent = selection.discountedPrice || 'Price not available';
+            if (selection.oldPrice && selection.oldPrice !== selection.discountedPrice) {
+                oldPriceEl.textContent = selection.oldPrice;
+                oldPriceEl.style.display = 'inline';
+            } else {
+                oldPriceEl.style.display = 'none';
+            }
+            if (selection.discount && selection.discount !== '0' && selection.discount !== '0%') {
+                discountEl.textContent = `${selection.discount}% OFF`;
+                discountEl.style.display = 'inline-block';
+            } else {
+                discountEl.style.display = 'none';
+            }
+            
+            // **SHOW CLEAN PLAN INFO ABOVE BUTTON FOR SUBSCRIPTION ONLY**
+            if (selection.planName && planInfoEl) {
+                planInfoEl.textContent = selection.planName;
+                planInfoEl.style.display = 'inline-block';
+                rightContainer.classList.add('subscription-active');
+            }
+            
+            buttonEl.textContent = 'Subscribe Now';
+            buttonEl.className = 'universal-sticky-bar-button subscription';
+        } else if (selection && selection.type === 'add-to-cart') {
+            // SIMPLE ADD TO CART
+            currentPriceEl.textContent = selection.price || 'Price not available';
+            if (selection.oldPrice && selection.oldPrice !== selection.price) {
+                oldPriceEl.textContent = selection.oldPrice;
+                oldPriceEl.style.display = 'inline';
+                const current = parseFloat(selection.price.replace(/[^\d.]/g, ''));
+                const old = parseFloat(selection.oldPrice.replace(/[^\d.]/g, ''));
+                if (old > current && !isNaN(current) && !isNaN(old)) {
+                    const discountPercent = Math.round(((old - current) / old) * 100);
+                    discountEl.textContent = `${discountPercent}% OFF`;
+                    discountEl.style.display = 'inline-block';
+                } else {
+                    discountEl.style.display = 'none';
+                }
+            } else {
+                oldPriceEl.style.display = 'none';
+                discountEl.style.display = 'none';
+            }
+            buttonEl.textContent = 'Add to Cart';
+            buttonEl.className = 'universal-sticky-bar-button';
+            if (planInfoEl) planInfoEl.style.display = 'none';
+        } else {
+            // NO SELECTION
+            currentPriceEl.textContent = 'Select an option';
+            oldPriceEl.style.display = 'none';
+            discountEl.style.display = 'none';
+            if (planInfoEl) planInfoEl.style.display = 'none';
+            buttonEl.textContent = 'Select Option';
+            buttonEl.className = 'universal-sticky-bar-button';
+        }
+        
+        // Check scroll and mobile conditions after update
+        handleScrollTrigger();
+        
+        // Re-setup button handler after content change
+        setupButtonHandler();
+    }
+    
+    // Toggle sticky bar for cart drawer
+    function toggleStickyBarForCartDrawer() {
+        const stickyBar = document.getElementById('universal-sticky-price-bar');
+        if (!stickyBar) return;
+        
+        const shouldShow = shouldShowStickyBar();
+        const cartDrawerVisible = isCartDrawerVisible();
+        
+        if (cartDrawerVisible || !shouldShow) {
+            stickyBar.style.transform = 'translateY(100%)';
+            stickyBar.style.visibility = 'hidden';
+            document.body.classList.remove('sticky-bar-visible');
+            manageFloatingWidgetsMargin(false);
+        } else {
+            stickyBar.style.transform = 'translateY(0)';
+            stickyBar.style.visibility = 'visible';
+            document.body.classList.add('sticky-bar-visible');
+            manageFloatingWidgetsMargin(true);
+        }
+    }
+    
+    // Setup scroll listener
+    function setupScrollListener() {
+        if (!isMobileDevice()) return;
+        let scrollTimeout;
+        window.addEventListener('scroll', () => {
+            clearTimeout(scrollTimeout);
+            scrollTimeout = setTimeout(handleScrollTrigger, 50);
+        }, { passive: true });
+    }
+    
+    // Immediate update function
+    function updateStickyBarImmediately() {
+        if (!isMobileDevice()) return;
+        
+        const pageType = getPageType();
+        const productName = getProductName();
+        
+        if (pageType === 'simple') {
+            setTimeout(() => {
+                const selection = getCurrentSelection();
+                updateStickyBar(selection, productName);
+            }, 500);
+        } else {
+            const selection = getCurrentSelection();
+            updateStickyBar(selection, productName);
+        }
+    }
+    
+    // Setup event listeners
+    function setupEventListeners() {
+        if (!isMobileDevice()) return;
+        
+        const pageType = getPageType();
+        
+        if (pageType === 'subscription') {
+            setupSubscriptionListeners();
+        } else {
+            setupSimpleListeners();
+        }
+        
+        setupButtonHandler();
+        setupCartDrawerObserver();
+        setupScrollListener();
+        updateStickyBarImmediately();
+    }
+    
+    // Setup subscription listeners
+    function setupSubscriptionListeners() {
+        const radioButtons = document.querySelectorAll('.recurpay__subscribe_radio, .recurpay__onetime_radio');
+        radioButtons.forEach((radio) => {
+            const newRadio = radio.cloneNode(true);
+            radio.parentNode.replaceChild(newRadio, radio);
+            ['change', 'click'].forEach(eventType => {
+                newRadio.addEventListener(eventType, function() {
+                    setTimeout(updateStickyBarImmediately, eventType === 'click' ? 50 : 10);
+                });
+            });
+        });
+        
+        const widgetContainers = document.querySelectorAll('.recurpay__widget_container');
+        widgetContainers.forEach(container => {
+            container.addEventListener('click', () => {
+                setTimeout(updateStickyBarImmediately, 100);
+            });
+        });
+        
+        document.addEventListener('change', function(e) {
+            if (e.target.matches('.recurpay__subscribe_radio, .recurpay__onetime_radio')) {
+                updateStickyBarImmediately();
+            }
+        });
+        
+        const frequencySelect = document.querySelector('.recurpay__frequency_select');
+        if (frequencySelect) {
+            frequencySelect.addEventListener('change', () => {
+                setTimeout(updateStickyBarImmediately, 500);
+            });
+        }
+    }
+    
+    // Setup simple listeners
+    function setupSimpleListeners() {
+        const variantRadios = document.querySelectorAll('input[name="QUANTITY DISCOUNT"]');
+        variantRadios.forEach(radio => {
+            radio.addEventListener('change', updateStickyBarImmediately);
+        });
+        
+        const quantityInputs = document.querySelectorAll(
+            'input[name="quantity"], .quantity__input, input[type="number"]'
+        );
+        quantityInputs.forEach(element => {
+            element.addEventListener('change', updateStickyBarImmediately);
+            if (element.type === 'number') {
+                element.addEventListener('input', () => {
+                    clearTimeout(element.universalUpdateTimeout);
+                    element.universalUpdateTimeout = setTimeout(updateStickyBarImmediately, 300);
+                });
+            }
+        });
+        
+        const quantityButtons = document.querySelectorAll('.quantity__button');
+        quantityButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                setTimeout(updateStickyBarImmediately, 100);
+            });
+        });
+        
+        const priceContainer = document.querySelector('.price, #price-template--16198437929148__main');
+        if (priceContainer) {
+            const observer = new MutationObserver(() => {
+                updateStickyBarImmediately();
+            });
+            observer.observe(priceContainer, {
+                childList: true,
+                subtree: true,
+                characterData: true
+            });
+        }
+    }
+    
+    // Setup button handler
+    function setupButtonHandler() {
+        const stickyBar = document.getElementById('universal-sticky-price-bar');
+        if (stickyBar) {
+            const button = stickyBar.querySelector('.universal-sticky-bar-button');
+            if (button) {
+                button.replaceWith(button.cloneNode(true));
+                const newButton = stickyBar.querySelector('.universal-sticky-bar-button');
+                newButton.addEventListener('click', () => {
+                    const selection = getCurrentSelection();
+                    if (selection) {
+                        newButton.classList.add('updating');
+                        if (selection.type === 'subscription') {
+                            const subscribeBtn = document.querySelector('[data-recurpay-action], .recurpay__action button, button[type="submit"]');
+                            if (subscribeBtn) subscribeBtn.click();
+                        } else {
+                            const addToCartBtn = document.querySelector(
+                                '.product-form__submit, button[name="add"], button[type="submit"], .btn-cart, .add-to-cart'
+                            );
+                            if (addToCartBtn) addToCartBtn.click();
+                        }
+                        setTimeout(() => {
+                            newButton.classList.remove('updating');
+                        }, 1000);
+                    }
+                });
+            }
+        }
+    }
+    
+    // Setup cart drawer observer
+    function setupCartDrawerObserver() {
+        const cartDrawer = document.getElementById('CartDrawer');
+        if (!cartDrawer) {
+            setTimeout(setupCartDrawerObserver, 1000);
+            return;
+        }
+        
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.type === 'attributes' && 
+                   (mutation.attributeName === 'class' || 
+                    mutation.attributeName === 'style' || 
+                    mutation.attributeName === 'hidden')) {
+                    toggleStickyBarForCartDrawer();
+                }
+            });
+        });
+        
+        observer.observe(cartDrawer, {
+            attributes: true,
+            attributeFilter: ['class', 'style', 'hidden']
+        });
+        
+        document.addEventListener('cart:open', toggleStickyBarForCartDrawer);
+        document.addEventListener('cart:close', toggleStickyBarForCartDrawer);
+        document.addEventListener('cart-drawer:open', toggleStickyBarForCartDrawer);
+        document.addEventListener('cart-drawer:close', toggleStickyBarForCartDrawer);
+        
+        let lastCartState = isCartDrawerVisible();
+        setInterval(() => {
+            const currentCartState = isCartDrawerVisible();
+            if (currentCartState !== lastCartState) {
+                lastCartState = currentCartState;
+                toggleStickyBarForCartDrawer();
+            }
+        }, 500);
+        
+        toggleStickyBarForCartDrawer();
+    }
+    
+    // Initialize everything
+    function initializeUniversalStickyBar() {
+        if (!isMobileDevice()) {
+            return;
+        }
+        
+        const existingBar = document.getElementById('universal-sticky-price-bar');
+        if (existingBar) existingBar.remove();
+        const existingStyles = document.getElementById('universal-sticky-bar-styles');
+        if (existingStyles) existingStyles.remove();
+        
+        // **NEW: Clean up body classes**
+        document.body.classList.remove('sticky-bar-visible');
+        
+        injectStyles();
+        const stickyBar = createStickyBar();
+        if (stickyBar) {
+            const pageType = getPageType();
+            if (pageType === 'simple') {
+                setTimeout(setupEventListeners, 400);
+            } else {
+                setTimeout(setupEventListeners, 200);
+            }
+        }
+    }
+    
+    // Initialize on DOM ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeUniversalStickyBar);
+    } else {
+        initializeUniversalStickyBar();
+    }
+})();
