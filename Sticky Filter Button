@@ -1,0 +1,101 @@
+/**
+ * Advanced Filter Widget v16.0 (Compact Layout)
+ * This script is designed to be placed in the <head> of your document.
+ * Features:
+ * - NEW: Reduced vertical padding and margins for a much more compact layout.
+ * - Instantly hides original theme filters to prevent any "flash".
+ * - Single-selection model: Click to select, click again to deselect.
+ */
+(function() {
+    // --- Part 1: INSTANT ACTION ---
+    const hideCss = `
+        #main-collection-filters > div,
+        #shopify-section-template--16198437109948__product-grid > div.collection-filter-type-main-wraper {
+            display: none !important;
+        }
+        .section-template--16198437109948__product-grid-padding {
+            padding-top: 0 !important;
+        }
+    `;
+    const styleTag = document.createElement('style');
+    styleTag.id = 'filter-hiding-style';
+    styleTag.textContent = hideCss;
+    if (!document.getElementById(styleTag.id)) {
+        document.head.appendChild(styleTag);
+    }
+    // --- Part 2: DEFERRED ACTION ---
+    function isConsideredMobile() {
+        const MOBILE_BREAKPOINT_PX = 768;
+        const hasMobileAgent = /Android|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const hasTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+        const isSmallScreen = window.innerWidth <= MOBILE_BREAKPOINT_PX;
+        return (hasMobileAgent || hasTouch) && isSmallScreen;
+    }
+    function initializeWidget() {
+        if (!isConsideredMobile() || document.getElementById('filter-widget-button')) {
+            return;
+        }
+        // --- All the widget setup logic from before ---
+        const widgetStyles = `
+            #filter-widget-button{position:fixed;bottom:25px;left:50%;transform:translateX(-50%);background-color:#4a4a4a;color:#fff;font-family:'Poppins',sans-serif;font-size:14px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;padding:16px 40px;border:none;border-radius:50px;cursor:pointer;z-index:99998;box-shadow:0 4px 14px rgba(0,0,0,.2)}
+            .filter-widget-modal-container{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background-color:rgba(0,0,0,.55);z-index:99999;align-items:center;justify-content:center;font-family:'Poppins',sans-serif}
+            .filter-widget-modal-content{background-color:#fff;padding:0;border-radius:0;width:90%;max-width:500px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 7px 25px rgba(0,0,0,.1)}
+            /* REDUCED PADDING */
+            .filter-widget-modal-header{padding:18px 25px;border-bottom:1px solid #e0e0e0;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+            .filter-widget-modal-header h2{margin:0;font-size:18px;font-weight:500;color:#333}
+            .filter-widget-modal-close-btn{font-size:26px;font-weight:300;color:#888;cursor:pointer}
+            #filter-widget-data-output{overflow-y:auto;padding:5px 25px}
+            .filter-widget-group{border-bottom:1px solid #e0e0e0}
+            .filter-widget-group:last-child{border-bottom:none}
+            /* REDUCED PADDING */
+            .filter-widget-toggle{font-size:14px;font-weight:500;color:#333;letter-spacing:1.2px;text-transform:uppercase;padding:12px 5px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none}
+            .filter-widget-toggle::after{content:'\\2212';font-size:22px;font-weight:300;color:#888}
+            .filter-widget-group.collapsed .filter-widget-toggle::after{content:'\\002B'}
+            .filter-widget-list{list-style:none;padding:0;margin:0 0 5px;max-height:1000px;overflow:hidden;transition:max-height .4s ease-out,margin-bottom .4s ease-out}
+            .filter-widget-group.collapsed .filter-widget-list{max-height:0;margin-bottom:0}
+            /* REDUCED PADDING */
+            .filter-widget-list li button{display:flex;align-items:center;width:100%;padding:7px 10px;margin:0;font-family:inherit;font-size:15px;color:#555;text-transform:capitalize;background-color:transparent;border:none;text-align:left;cursor:pointer;border-radius:3px}
+            .filter-widget-list li button:hover{background-color:#f2f2f7}
+            .filter-widget-list li button.selected{background-color:#eef5ff;color:#0052cc;font-weight:600}
+            .filter-widget-item-img{width:24px;height:24px;border-radius:50%;margin-right:12px;object-fit:cover}
+            /* REDUCED PADDING */
+            .filter-widget-modal-footer{padding:15px 25px;margin-top:5px;border-top:1px solid #e0e0e0}
+            #filter-widget-submit-btn{width:100%;background-color:#4a4a4a;color:#fff;font-family:inherit;font-size:16px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;padding:15px 20px;border:none;border-radius:2px;cursor:pointer}
+        `;
+        const buttonHtml = `
+            <button id="filter-widget-button">
+                <span style="display:flex;align-items:center;gap:8px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" 
+                        width="18" height="18" fill="currentColor" 
+                        viewBox="0 0 16 16">
+                        <path d="M6 10.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5zm-3-3a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 0 1h-13a.5.5 0 0 1-.5-.5z"></path>
+                    </svg>
+                    <span>Filters</span>
+                </span>
+            </button>
+        `;
+
+
+        const modalHtml = `<div id="filter-widget-modal" class="filter-widget-modal-container"><div class="filter-widget-modal-content"><div class="filter-widget-modal-header"><h2>All Available Filters</h2><span id="filter-widget-close-btn" class="filter-widget-modal-close-btn">×</span></div><div id="filter-widget-data-output"></div><div class="filter-widget-modal-footer"><button id="filter-widget-submit-btn">Apply Filters</button></div></div></div>`;
+        let selectedFilter = null;
+        document.head.insertAdjacentHTML('beforeend', `<style>${widgetStyles}</style>`);
+        document.body.insertAdjacentHTML('beforeend', buttonHtml);
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        const showFiltersBtn = document.getElementById('filter-widget-button');
+        const filterModal = document.getElementById('filter-widget-modal');
+        const closeButton = document.getElementById('filter-widget-close-btn');
+        const dataContainer = document.getElementById('filter-widget-data-output');
+        const submitButton = document.getElementById('filter-widget-submit-btn');
+        function updateUI(){dataContainer.querySelectorAll(`.filter-widget-list button`).forEach(a=>{const b=selectedFilter&&selectedFilter.url===a.dataset.url;a.classList.toggle("selected",b)})}
+        function getAllFilterDataAsHtml(){let a="",b="",c=0;const d=(e,f)=>{if(!f||0===f.length)return"";const g=0<c++?"collapsed":"";let h=f.map(i=>{const j=i.imgSrc?`<img src="${i.imgSrc}" class="filter-widget-item-img" alt="">`:"";return`<li><button data-url="${i.url}" data-value="${i.value}">${j}<span>${i.value}</span></button></li>`}).join("");return`<div class="filter-widget-group ${g}"><h3 class="filter-widget-toggle">${e}</h3><ul class="filter-widget-list">${h}</ul></div>`};document.querySelectorAll(".collection-filter-type-main-wraper").forEach(e=>{const f=e.querySelector(".filter-text-type")?.textContent.trim()||"Untitled",g=Array.from(e.querySelectorAll(".collection-filte-type a")).map(h=>({value:h.dataset.title?.trim()||"No title",url:h.getAttribute("href")||"#",imgSrc:h.querySelector("img")?.src}));a+=d(f,g)});document.querySelectorAll(".inner__container.col-tags").forEach(e=>{const f=e.querySelector(".filters_titles")?.textContent.trim()||"Untitled",g=Array.from(e.querySelectorAll("li.filter_name_li")).map(h=>({value:h.querySelector("label")?.textContent.trim(),url:h.querySelector("a")?.getAttribute("href")||"#"})).filter(h=>h.value);b+=d(f,g)});document.querySelectorAll(".filter_name.caffeine-filter").forEach(e=>{const f=e.querySelector("h5.filters_titles")?.textContent.trim()||"Caffeine",g=Array.from(e.querySelectorAll("li.filter_name_li")).map(h=>({value:h.querySelector("label")?.textContent.trim(),url:h.dataset.link||"#"})).filter(h=>h.value);b+=d(f,g)});return a+b||"<p>No filters were found on this page.</p>"}
+        showFiltersBtn.addEventListener('click', ()=>{if(!dataContainer.innerHTML)dataContainer.innerHTML=getAllFilterDataAsHtml();updateUI();filterModal.style.display="flex"});
+        submitButton.addEventListener('click', ()=>{if(selectedFilter)window.location.href=selectedFilter.url;else{const a=window.location.pathname.split("/").filter(Boolean),b=`/${a[0]}/${a[1]}`;window.location.href=b}});
+        dataContainer.addEventListener('click',a=>{const b=a.target.closest(".filter-widget-toggle");if(b)return void b.parentElement.classList.toggle("collapsed");const c=a.target.closest(".filter-widget-list button");if(c){const d={value:c.dataset.value,url:c.dataset.url};selectedFilter&&selectedFilter.url===d.url?selectedFilter=null:selectedFilter=d;updateUI()}});
+        const closeModal=()=>{filterModal.style.display="none"};closeButton.addEventListener('click',closeModal);window.addEventListener('keydown',a=>"Escape"===a.key&&closeModal());filterModal.addEventListener('click',a=>a.target===filterModal&&closeModal())
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeWidget);
+    } else {
+        initializeWidget();
+    }
+})();
